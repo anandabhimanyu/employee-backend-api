@@ -1,104 +1,134 @@
 package employee
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
-	repo *Repository
+	repo Repository
 }
 
-func NewHandler(repo *Repository) *Handler {
+func NewHandler(repo Repository) *Handler {
 	return &Handler{repo: repo}
 }
 
-// POST /employees
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+// ================= CREATE =================
+func (h *Handler) Create(c *gin.Context) {
 	var e Employee
-	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+
+	if err := c.ShouldBindJSON(&e); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid JSON payload",
+		})
+		return
+	}
+
+	// ✅ VALIDATION
+	if e.FullName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "full_name is required"})
+		return
+	}
+	if e.JobTitle == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job_title is required"})
+		return
+	}
+	if e.Country == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "country is required"})
+		return
+	}
+	if e.Salary <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "salary must be greater than 0"})
 		return
 	}
 
 	if err := h.repo.Create(&e); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(e)
+	c.JSON(http.StatusCreated, e)
 }
 
-// GET /employees/{id}
-func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	idStr := mux.Vars(r)["id"]
-	id, err := strconv.Atoi(idStr)
+// ================= LIST =================
+func (h *Handler) List(c *gin.Context) {
+	list, err := h.repo.List()
 	if err != nil {
-		http.Error(w, "invalid employee id", http.StatusBadRequest)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+// ================= GET BY ID =================
+func (h *Handler) GetByID(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid employee id",
+		})
 		return
 	}
 
 	e, err := h.repo.GetByID(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": err.Error(),
+		})
 		return
 	}
 
-	json.NewEncoder(w).Encode(e)
+	c.JSON(http.StatusOK, e)
 }
 
-// GET /employees
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	employees, err := h.repo.List()
+// ================= UPDATE =================
+func (h *Handler) Update(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(employees)
-}
-
-// PUT /employees/{id}
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	idStr := mux.Vars(r)["id"]
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "invalid employee id", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid employee id"})
 		return
 	}
 
 	var e Employee
-	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&e); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON payload"})
 		return
 	}
+
+	// ✅ VALIDATION
+	if e.FullName == "" || e.JobTitle == "" || e.Country == "" || e.Salary <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
+		return
+	}
+
 	e.ID = id
 
 	if err := h.repo.Update(&e); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	json.NewEncoder(w).Encode(e)
+	c.JSON(http.StatusOK, gin.H{"message": "employee updated"})
 }
 
-// DELETE /employees/{id}
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	idStr := mux.Vars(r)["id"]
-	id, err := strconv.Atoi(idStr)
+// ================= DELETE =================
+func (h *Handler) Delete(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		http.Error(w, "invalid employee id", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid employee id"})
 		return
 	}
 
 	if err := h.repo.Delete(id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"message": "employee deleted"})
 }

@@ -8,7 +8,7 @@ import (
 
 type Repository interface {
 	Create(*Employee) error
-	List(limit, offset int, country string) ([]Employee, error)
+	List(limit, offset int, country, sort, order string) ([]Employee, error)
 	Count(country string) (int, error)
 	GetByID(int) (*Employee, error)
 	Update(*Employee) error
@@ -33,28 +33,50 @@ func (r *postgresRepository) Create(e *Employee) error {
 	).Scan(&e.ID, &e.CreatedAt)
 }
 
-func (r *postgresRepository) List(limit, offset int, country string) ([]Employee, error) {
+func (r *postgresRepository) List(
+	limit, offset int,
+	country, sort, order string,
+) ([]Employee, error) {
+
+	// ✅ allow-list (VERY IMPORTANT)
+	allowedSort := map[string]string{
+		"id":         "id",
+		"salary":     "salary",
+		"created_at": "created_at",
+	}
+
+	if sort == "" {
+		sort = "id"
+	}
+	if _, ok := allowedSort[sort]; !ok {
+		sort = "id"
+	}
+
+	if order != "desc" {
+		order = "asc"
+	}
+
 	query := `
 		SELECT id, full_name, job_title, country, salary, created_at
 		FROM employees
 	`
 	args := []interface{}{}
-	argPos := 1
+	idx := 1
 
 	if country != "" {
-		query += " WHERE country = $" + strconv.Itoa(argPos)
+		query += " WHERE country = $" + strconv.Itoa(idx)
 		args = append(args, country)
-		argPos++
+		idx++
 	}
 
-	query += " ORDER BY id"
+	query += " ORDER BY " + allowedSort[sort] + " " + order
 
 	if limit > 0 {
-		query += " LIMIT $" + strconv.Itoa(argPos)
+		query += " LIMIT $" + strconv.Itoa(idx)
 		args = append(args, limit)
-		argPos++
+		idx++
 
-		query += " OFFSET $" + strconv.Itoa(argPos)
+		query += " OFFSET $" + strconv.Itoa(idx)
 		args = append(args, offset)
 	}
 

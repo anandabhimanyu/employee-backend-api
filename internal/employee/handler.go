@@ -17,66 +17,61 @@ func NewHandler(repo Repository) *Handler {
 
 // ================= CREATE =================
 func (h *Handler) Create(c *gin.Context) {
-	var e Employee
+	var req CreateEmployeeRequest
 
-	if err := c.ShouldBindJSON(&e); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid JSON payload",
+			"error": err.Error(),
 		})
 		return
 	}
 
-	// ✅ VALIDATION
-	if e.FullName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "full_name is required"})
-		return
-	}
-	if e.JobTitle == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "job_title is required"})
-		return
-	}
-	if e.Country == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "country is required"})
-		return
-	}
-	if e.Salary <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "salary must be greater than 0"})
-		return
+	employee := Employee{
+		FullName: req.FullName,
+		JobTitle: req.JobTitle,
+		Country:  req.Country,
+		Salary:   req.Salary,
 	}
 
-	if err := h.repo.Create(&e); err != nil {
+	if err := h.repo.Create(&employee); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusCreated, e)
+	c.JSON(http.StatusCreated, employee)
 }
 
 // ================= LIST =================
 func (h *Handler) List(c *gin.Context) {
-	// 1️⃣ Read query params
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	country := c.Query("country")
+	sort := c.DefaultQuery("sort", "id")
+	order := c.DefaultQuery("order", "asc")
 
-	// 2️⃣ Fetch data
-	list, err := h.repo.List(limit, offset, country)
+	data, err := h.repo.List(limit, offset, country, sort, order)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 3️⃣ Return structured response
+	total, err := h.repo.Count(country)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"data": list,
+		"data": data,
 		"meta": gin.H{
 			"limit":  limit,
 			"offset": offset,
-			"count":  len(list),
+			"count":  len(data),
+			"total":  total,
+			"sort":   sort,
+			"order":  order,
 		},
 	})
 }
@@ -110,21 +105,23 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 
-	var e Employee
-	if err := c.ShouldBindJSON(&e); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON payload"})
+	var req UpdateEmployeeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
 		return
 	}
 
-	// ✅ VALIDATION
-	if e.FullName == "" || e.JobTitle == "" || e.Country == "" || e.Salary <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
-		return
+	employee := Employee{
+		ID:       id,
+		FullName: req.FullName,
+		JobTitle: req.JobTitle,
+		Country:  req.Country,
+		Salary:   req.Salary,
 	}
 
-	e.ID = id
-
-	if err := h.repo.Update(&e); err != nil {
+	if err := h.repo.Update(&employee); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}

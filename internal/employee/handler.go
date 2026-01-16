@@ -56,14 +56,29 @@ func (h *Handler) Create(c *gin.Context) {
 
 // ================= LIST =================
 func (h *Handler) List(c *gin.Context) {
-	list, err := h.repo.List()
+	// 1️⃣ Read query params
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	country := c.Query("country")
+
+	// 2️⃣ Fetch data
+	list, err := h.repo.List(limit, offset, country)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
-	c.JSON(http.StatusOK, list)
+
+	// 3️⃣ Return structured response
+	c.JSON(http.StatusOK, gin.H{
+		"data": list,
+		"meta": gin.H{
+			"limit":  limit,
+			"offset": offset,
+			"count":  len(list),
+		},
+	})
 }
 
 // ================= GET BY ID =================

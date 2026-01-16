@@ -3,74 +3,68 @@ package employee
 import (
 	"database/sql"
 	"errors"
+	"strconv"
 )
 
-type Repository struct {
+type Repository interface {
+	Create(*Employee) error
+	List(limit, offset int, country string) ([]Employee, error)
+	Count(country string) (int, error)
+	GetByID(int) (*Employee, error)
+	Update(*Employee) error
+	Delete(int) error
+}
+
+type postgresRepository struct {
 	db *sql.DB
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &postgresRepository{db: db}
 }
 
-// Create employee
-func (r *Repository) Create(e *Employee) error {
-	query := `
+func (r *postgresRepository) Create(e *Employee) error {
+	return r.db.QueryRow(`
 		INSERT INTO employees (full_name, job_title, country, salary)
-		VALUES ($1, $2, $3, $4)
+		VALUES ($1,$2,$3,$4)
 		RETURNING id, created_at
-	`
-
-	return r.db.QueryRow(
-		query,
-		e.FullName,
-		e.JobTitle,
-		e.Country,
-		e.Salary,
+	`,
+		e.FullName, e.JobTitle, e.Country, e.Salary,
 	).Scan(&e.ID, &e.CreatedAt)
 }
 
-// Get employee by ID
-func (r *Repository) GetByID(id int) (*Employee, error) {
+func (r *postgresRepository) List(limit, offset int, country string) ([]Employee, error) {
 	query := `
 		SELECT id, full_name, job_title, country, salary, created_at
 		FROM employees
-		WHERE id = $1
 	`
+	args := []interface{}{}
+	argPos := 1
 
-	var e Employee
-	err := r.db.QueryRow(query, id).Scan(
-		&e.ID,
-		&e.FullName,
-		&e.JobTitle,
-		&e.Country,
-		&e.Salary,
-		&e.CreatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, errors.New("employee not found")
+	if country != "" {
+		query += " WHERE country = $" + strconv.Itoa(argPos)
+		args = append(args, country)
+		argPos++
 	}
 
-	return &e, err
-}
+	query += " ORDER BY id"
 
-// List all employees
-func (r *Repository) List() ([]Employee, error) {
-	query := `
-		SELECT id, full_name, job_title, country, salary, created_at
-		FROM employees
-		ORDER BY id
-	`
+	if limit > 0 {
+		query += " LIMIT $" + strconv.Itoa(argPos)
+		args = append(args, limit)
+		argPos++
 
-	rows, err := r.db.Query(query)
+		query += " OFFSET $" + strconv.Itoa(argPos)
+		args = append(args, offset)
+	}
+
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	var employees []Employee
-
 	for rows.Next() {
 		var e Employee
 		if err := rows.Scan(
@@ -89,50 +83,61 @@ func (r *Repository) List() ([]Employee, error) {
 	return employees, nil
 }
 
-// Update employee
-func (r *Repository) Update(e *Employee) error {
-	query := `
-		UPDATE employees
-		SET full_name = $1,
-		    job_title = $2,
-		    country = $3,
-		    salary = $4
-		WHERE id = $5
-	`
+func (r *postgresRepository) Count(country string) (int, error) {
+	query := `SELECT COUNT(*) FROM employees`
+	args := []interface{}{}
 
-	res, err := r.db.Exec(
-		query,
-		e.FullName,
-		e.JobTitle,
-		e.Country,
-		e.Salary,
-		e.ID,
+	if country != "" {
+		query += " WHERE country = $1"
+		args = append(args, country)
+	}
+
+	var total int
+	err := r.db.QueryRow(query, args...).Scan(&total)
+	return total, err
+}
+
+func (r *postgresRepository) GetByID(id int) (*Employee, error) {
+	var e Employee
+	err := r.db.QueryRow(`
+		SELECT id, full_name, job_title, country, salary, created_at
+		FROM employees WHERE id=$1
+	`, id).Scan(
+		&e.ID, &e.FullName, &e.JobTitle,
+		&e.Country, &e.Salary, &e.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("employee not found")
+	}
+	return &e, err
+}
+
+func (r *postgresRepository) Update(e *Employee) error {
+	res, err := r.db.Exec(`
+		UPDATE employees
+		SET full_name=$1, job_title=$2, country=$3, salary=$4
+		WHERE id=$5
+	`,
+		e.FullName, e.JobTitle, e.Country, e.Salary, e.ID,
 	)
 	if err != nil {
 		return err
 	}
-
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
 		return errors.New("employee not found")
 	}
-
 	return nil
 }
 
-// Delete employee
-func (r *Repository) Delete(id int) error {
-	query := `DELETE FROM employees WHERE id = $1`
-
-	res, err := r.db.Exec(query, id)
+func (r *postgresRepository) Delete(id int) error {
+	res, err := r.db.Exec(`DELETE FROM employees WHERE id=$1`, id)
 	if err != nil {
 		return err
 	}
-
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
 		return errors.New("employee not found")
 	}
-
 	return nil
 }

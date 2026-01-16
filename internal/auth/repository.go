@@ -1,39 +1,35 @@
 package auth
 
-import (
-	"database/sql"
-	"errors"
-)
+import "database/sql"
 
-type Repository struct {
+type Repository interface {
+	Create(*User) error
+	GetByEmail(string) (*User, error)
+}
+
+type postgresRepository struct {
 	db *sql.DB
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &postgresRepository{db: db}
 }
 
-func (r *Repository) CreateUser(email, passwordHash string) error {
-	_, err := r.db.Exec(
-		`INSERT INTO users (email, password_hash) VALUES ($1, $2)`,
-		email,
-		passwordHash,
-	)
-	return err
+func (r *postgresRepository) Create(u *User) error {
+	return r.db.QueryRow(`
+		INSERT INTO users (email, password_hash, role)
+		VALUES ($1,$2,$3)
+		RETURNING id, created_at
+	`, u.Email, u.PasswordHash, u.Role).Scan(&u.ID, &u.CreatedAt)
 }
 
-func (r *Repository) GetByEmail(email string) (*User, error) {
+func (r *postgresRepository) GetByEmail(email string) (*User, error) {
 	var u User
-
-	err := r.db.QueryRow(
-		`SELECT id, email, password_hash, created_at
-		 FROM users WHERE email = $1`,
-		email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
-
-	if err == sql.ErrNoRows {
-		return nil, errors.New("user not found")
-	}
-
+	err := r.db.QueryRow(`
+		SELECT id, email, password_hash, role, created_at
+		FROM users WHERE email=$1
+	`, email).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt,
+	)
 	return &u, err
 }

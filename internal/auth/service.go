@@ -3,19 +3,29 @@ package auth
 import "errors"
 
 type Service struct {
-	repo *Repository
+	repo Repository
 }
 
-func NewService(repo *Repository) *Service {
+func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) Register(email, password string) error {
+func (s *Service) Register(email, password string) (*User, error) {
 	hash, err := HashPassword(password)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return s.repo.CreateUser(email, hash)
+
+	user := &User{
+		Email:        email,
+		PasswordHash: hash,
+		Role:         "user", // 👈 default role
+	}
+
+	if err := s.repo.Create(user); err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 func (s *Service) Login(email, password string) (*User, error) {
@@ -27,6 +37,5 @@ func (s *Service) Login(email, password string) (*User, error) {
 	if !CheckPassword(password, user.PasswordHash) {
 		return nil, errors.New("invalid credentials")
 	}
-
 	return user, nil
 }
